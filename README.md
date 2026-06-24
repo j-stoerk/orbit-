@@ -1,4 +1,3 @@
-<!-- Hugging Face Spaces deployment config (ignored by GitHub readers) -->
 ---
 title: ORBIT
 emoji: 🛰️
