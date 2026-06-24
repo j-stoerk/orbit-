@@ -1,3 +1,15 @@
+<!-- Hugging Face Spaces deployment config (ignored by GitHub readers) -->
+---
+title: ORBIT
+emoji: 🛰️
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+license: mit
+---
+
 # ORBIT — Operational Response, Briefing & Incident Triage
 
 > Built for the **Kaggle × Google "5-Day AI Agents Intensive" capstone** (Day 5).
