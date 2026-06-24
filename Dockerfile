@@ -16,8 +16,9 @@ COPY backend ./backend
 COPY frontend ./frontend
 COPY run.py .
 
-ENV PORT=8000
-EXPOSE 8000
+# 7860 is the Hugging Face Spaces default (zero-config there).
+# Cloud Run / Render / Fly inject their own $PORT, which overrides this.
+ENV PORT=7860
+EXPOSE 7860
 
-# Cloud Run / Render / Fly set $PORT; HF Spaces uses 7860 (set via app_port).
-CMD ["sh", "-c", "uvicorn backend.app:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "uvicorn backend.app:app --host 0.0.0.0 --port ${PORT:-7860}"]
