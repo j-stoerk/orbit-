@@ -121,21 +121,23 @@ python -m pip install -r requirements.txt
 python run.py                       # → http://127.0.0.1:8000
 ```
 
-## Deploy a live demo
+## Deploy a live demo (free)
 
-ORBIT is a Python (FastAPI) app, so it needs a host that runs Python —
-**GitHub Pages cannot run it** (static only). Use any Docker host:
+ORBIT is a Python (FastAPI) app — **GitHub Pages cannot run it** (static only).
+The included `Dockerfile` runs anywhere. Recommended **free, no-credit-card** host:
 
+**Hugging Face Spaces (Docker):** create a Public **Docker** Space, push this repo
+to it, done — live at `https://<user>-orbit.hf.space`. The Dockerfile listens on
+7860 (HF default), so no extra config. WebSockets work; it only sleeps after 48h idle.
+
+Other Docker hosts:
 ```bash
-# Google Cloud Run (on-brand for the course)
-gcloud run deploy orbit --source . --allow-unauthenticated --region europe-west1
-
-# or Render / Fly.io / Railway — point them at the included Dockerfile
-# or Hugging Face Spaces — create a Docker Space, push this repo, set app_port: 8000
+gcloud run deploy orbit --source . --allow-unauthenticated   # Google Cloud Run (needs billing acct)
+# Render: New → Web Service → connect this repo (auto-detects the Dockerfile)
 ```
 
-It boots with **zero secrets** (free keyless feeds). Add keys from `.env.example`
-in the host's environment settings to unlock Claude reasoning + extra data sources.
+Boots with **zero secrets** (free keyless feeds). Add keys from `.env.example` in
+the host's environment/secrets settings to unlock Claude reasoning + extra sources.
 
 Optional — enable Claude reasoning:
 
