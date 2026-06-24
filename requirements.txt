@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+pydantic
+requests
+python-dotenv
+# Optional — enables Claude-powered agent reasoning when ANTHROPIC_API_KEY is set
+anthropic
+# Legacy CLI pipeline (kept for backwards compat)
+mcp

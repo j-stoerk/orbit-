@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+venv/
+.venv/
+.git/
+.gitignore
+*.log
+resources.json
+agents/
+skills/
+mcp_server/
+main.py
+inventory.json

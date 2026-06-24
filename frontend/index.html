@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ORBIT — Operational Response, Briefing &amp; Incident Triage</title>
+  <link rel="preconnect" href="https://unpkg.com" />
+  <link rel="stylesheet" href="/static/css/styles.css" />
+</head>
+<body>
+  <!-- ============================= HEADER ============================= -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo" aria-label="ORBIT logo">
+        <svg viewBox="-50 -50 100 100" role="img">
+          <!-- revolving orbit -->
+          <g class="orbit-grp" transform="rotate(-18) scale(1 0.42)">
+            <circle class="orbit-ring" r="42"/>
+            <g>
+              <circle class="planet" cx="42" cy="0" r="4.6"/>
+              <animateTransform attributeName="transform" type="rotate" from="0 0 0" to="360 0 0" dur="7s" repeatCount="indefinite"/>
+            </g>
+          </g>
+          <!-- Rod of Asclepius -->
+          <g class="rod">
+            <line x1="0" y1="-30" x2="0" y2="32"/>
+            <circle class="knob" cx="0" cy="-32" r="3"/>
+            <path class="snake" d="M -2,30 C 13,24 -13,15 0,9 C 13,3 -13,-6 0,-12 C 11,-17 -7,-23 0,-27"/>
+            <circle class="snake-head" cx="0" cy="-28" r="2.6"/>
+          </g>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <h1>ORBIT</h1>
+        <span>Operational Response, Briefing &amp; Incident Triage</span>
+      </div>
+    </div>
+    <nav class="top-nav">
+      <button class="nav-btn active" data-view="globe">Global Picture</button>
+      <button class="nav-btn" data-view="monitor">Monitoring <b class="count" id="alertBadge" hidden>0</b></button>
+      <button class="nav-btn" data-view="incidents">Incidents</button>
+      <button class="nav-btn" data-view="resources">Resources</button>
+      <button class="nav-btn" data-view="handbook">Hazard KB</button>
+    </nav>
+    <div class="top-status">
+      <span class="status-pill" id="llmStatus" title="Agent reasoning engine">●  engine</span>
+      <span class="status-pill" id="eventCount">0 live events</span>
+      <span class="clock" id="clock">--:--:-- UTC</span>
+    </div>
+  </header>
+
+  <div class="layout">
+    <!-- ========================= LEFT SIDEBAR ========================= -->
+    <aside class="sidebar">
+      <!-- Intake / agent trigger -->
+      <section class="panel">
+        <header class="panel-head" data-collapse>
+          <span>1 · Incident Intake</span><i class="chev"></i>
+        </header>
+        <div class="panel-body">
+          <p class="hint">Paste a field report, news flash, or distress message.
+            The agent team will structure, assess and coordinate a response.</p>
+          <textarea id="reportInput" rows="5" placeholder="e.g. Magnitude 7.1 earthquake struck near Istanbul. Many buildings collapsed, roughly 20,000 people affected, 400 injured. Need medics, water and rescue teams."></textarea>
+          <div class="sample-row" id="sampleRow"></div>
+          <label class="check"><input type="checkbox" id="hitlToggle" /> Require human approval before committing resources (HITL)</label>
+          <button class="btn-primary" id="runBtn">▶  Activate Agent Team</button>
+        </div>
+      </section>
+
+      <!-- Live data layers -->
+      <section class="panel">
+        <header class="panel-head" data-collapse>
+          <span>2 · Live Data Layers</span><i class="chev"></i>
+        </header>
+        <div class="panel-body">
+          <label class="layer"><input type="checkbox" id="layerEq" checked /> <span class="dot eq"></span> USGS Earthquakes</label>
+          <label class="layer"><input type="checkbox" id="layerGdacs" checked /> <span class="dot gdacs"></span> GDACS Alerts (Red/Orange)</label>
+          <label class="layer"><input type="checkbox" id="layerRw" checked /> <span class="dot rw"></span> ReliefWeb Disasters</label>
+          <div class="range-row">
+            <label>Min. earthquake magnitude: <b id="magVal">4.5</b></label>
+            <input type="range" id="magRange" min="2.5" max="7" step="0.5" value="4.5" />
+          </div>
+          <button class="btn-ghost" id="refreshBtn">⟳  Refresh feeds</button>
+          <div class="feed-meta" id="feedMeta">—</div>
+        </div>
+      </section>
+
+      <!-- Live events triage list -->
+      <section class="panel grow">
+        <header class="panel-head" data-collapse>
+          <span>3 · Live Events <b class="count" id="evCount">0</b></span><i class="chev"></i>
+        </header>
+        <div class="panel-body ev-panel">
+          <input id="evSearch" class="search" placeholder="🔍  Filter by place, type, source…" />
+          <div class="seg" id="evSevFilter">
+            <button data-sev="all" class="active">All</button>
+            <button data-sev="Critical">Critical</button>
+            <button data-sev="High">High</button>
+            <button data-sev="Moderate">Mod</button>
+          </div>
+          <div class="ev-list" id="evList"></div>
+        </div>
+      </section>
+    </aside>
+
+    <!-- ========================= MAIN STAGE ========================= -->
+    <main class="stage">
+      <div id="globeView" class="view active">
+        <div id="globe"></div>
+        <div class="globe-legend">
+          <span><i class="sw crit"></i>Critical</span>
+          <span><i class="sw high"></i>High</span>
+          <span><i class="sw mod"></i>Moderate</span>
+          <span><i class="sw low"></i>Low</span>
+          <span class="legend-sep"></span>
+          <span><i class="sw depot"></i>Depot</span>
+          <span><i class="sw vessel"></i>Vessel</span>
+        </div>
+        <div class="globe-hint">Drag to rotate · scroll to zoom · click a marker to brief it</div>
+      </div>
+
+      <div id="incidentsView" class="view">
+        <div class="view-pad" id="incidentsList"></div>
+      </div>
+
+      <div id="resourcesView" class="view">
+        <div class="view-pad" id="resourcesPanel"></div>
+      </div>
+
+      <div id="handbookView" class="view">
+        <div class="view-pad" id="handbookPanel"></div>
+      </div>
+
+      <div id="monitorView" class="view">
+        <div class="view-pad" id="monitorPanel"></div>
+      </div>
+    </main>
+
+    <!-- ========================= RIGHT BRIEF ========================= -->
+    <aside class="brief" id="brief">
+      <div class="brief-empty" id="briefEmpty">
+        <div class="brief-empty-icon">◎</div>
+        <p>Select a live event on the globe, or run the agent team, to open an operational brief.</p>
+      </div>
+      <div class="brief-content" id="briefContent" hidden>
+        <header class="brief-head">
+          <div class="brief-head-main">
+            <div class="badge-row">
+              <span class="sev-badge" id="briefSev">—</span>
+              <span class="conf-badge" id="briefConf" title="Confidence — how well-corroborated this picture is (separate from severity)">—</span>
+            </div>
+            <h2 id="briefTitle">—</h2>
+            <span class="brief-sub" id="briefSub">—</span>
+          </div>
+          <div class="brief-head-actions">
+            <button class="brief-export" id="briefExport" title="Open shareable briefing package">⤓ Brief</button>
+            <button class="brief-close" id="briefClose">✕</button>
+          </div>
+        </header>
+        <div class="brief-tabs">
+          <button class="tab active" data-tab="overview">Briefing</button>
+          <button class="tab" data-tab="3w">Who &amp; Tasking</button>
+          <button class="tab" data-tab="logistics">Logistics</button>
+          <button class="tab" data-tab="alerts">Alerts</button>
+          <button class="tab" data-tab="sitrep">SitRep</button>
+          <button class="tab" data-tab="media">News</button>
+          <button class="tab" data-tab="log">Log</button>
+        </div>
+        <div class="brief-body">
+          <div class="tab-pane active" id="tab-overview"></div>
+          <div class="tab-pane" id="tab-3w"></div>
+          <div class="tab-pane" id="tab-logistics"></div>
+          <div class="tab-pane" id="tab-alerts"></div>
+          <div class="tab-pane" id="tab-sitrep"></div>
+          <div class="tab-pane" id="tab-media"></div>
+          <div class="tab-pane" id="tab-log"></div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <script src="https://unpkg.com/globe.gl@2.32.0/dist/globe.gl.min.js"></script>
+  <script src="/static/js/globe.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
