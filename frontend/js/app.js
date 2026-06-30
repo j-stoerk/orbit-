@@ -63,7 +63,7 @@ function wireUI() {
   $("#briefClose").addEventListener("click", closeBrief);
   $("#magRange").addEventListener("input", (e) => { $("#magVal").textContent = e.target.value; });
   $("#magRange").addEventListener("change", refreshFeeds);
-  ["layerEq", "layerGdacs", "layerRw"].forEach((id) =>
+  ["layerEq", "layerGdacs", "layerRw", "layerImpact"].forEach((id) =>
     $("#" + id).addEventListener("change", () => renderEvents()));
 
   // live-events search + severity filter
@@ -125,6 +125,7 @@ async function refreshFeeds() {
 
 function renderEvents() {
   const showEq = $("#layerEq").checked, showG = $("#layerGdacs").checked, showR = $("#layerRw").checked;
+  const showImpact = $("#layerImpact").checked;
   filteredEvents = liveEvents.filter((e) =>
     (e.source === "USGS" && showEq) ||
     (e.source === "GDACS" && showG) ||
@@ -132,6 +133,12 @@ function renderEvents() {
   CrisisGlobe.setEvents(filteredEvents);
   // pulse rings on Critical + High events
   CrisisGlobe.setActiveRings(filteredEvents.filter((e) => SEV_RANK[e.severity] >= 3));
+  // 3D impact range zones
+  if (showImpact) {
+    CrisisGlobe.setImpactCircles(filteredEvents);
+  } else {
+    CrisisGlobe.setImpactCircles([]);
+  }
   renderEventList();
 }
 
@@ -384,6 +391,7 @@ function renderBrief(inc) {
   $("#briefTitle").textContent = `${di.disaster_type} · ${di.location}`;
   $("#briefSub").textContent = inc.sitrep ? inc.sitrep.headline : `Incident ${inc.id}`;
   $("#briefExport").onclick = () => window.open(`${API}/api/incidents/${inc.id}/briefing`, "_blank");
+  $("#briefExportPdf").onclick = () => window.open(`${API}/api/incidents/${inc.id}/briefing/pdf`, "_blank");
 
   if (di.coordinates && di.coordinates.lat != null) CrisisGlobe.focus(di.coordinates.lat, di.coordinates.lon, 1.0);
 
@@ -525,6 +533,7 @@ function renderBrief(inc) {
   $("#tab-sitrep").innerHTML = inc.sitrep
     ? `<div class="sitrep-actions">
          <button class="btn-ghost sm" onclick="window.open('${API}/api/incidents/${inc.id}/briefing','_blank')">⤓ Briefing package</button>
+         <button class="btn-ghost sm" onclick="window.open('${API}/api/incidents/${inc.id}/briefing/pdf','_blank')">⤓ PDF Briefing</button>
          <button class="btn-ghost sm" onclick="downloadSitRep('${inc.id}')">⭳ .md</button>
          <button class="btn-ghost sm" onclick="copySitRep('${inc.id}')">⧉ Copy</button>
        </div><div class="sitrep-md">${mdToHtml(inc.sitrep.body_markdown)}</div>`
