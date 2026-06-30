@@ -7,3 +7,4 @@ python-dotenv
 anthropic
 # Legacy CLI pipeline (kept for backwards compat)
 mcp
+xhtml2pdf
