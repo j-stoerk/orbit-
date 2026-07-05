@@ -17,6 +17,7 @@ _FALLBACK: Dict[str, Tuple[float, float]] = {
     "miami": (25.7617, -80.1918),
     "tokyo": (35.6762, 139.6503),
     "manila": (14.5995, 120.9842),
+    "university of santo tomas, manila": (14.6095, 120.9897),
     "jakarta": (-6.2088, 106.8456),
     "istanbul": (41.0082, 28.9784),
     "kathmandu": (27.7172, 85.3240),
