@@ -60,6 +60,10 @@ _SEED: List[Dict[str, Any]] = [
      "location": "UNHRD Panama City", "lat": 8.9824, "lon": -79.5199, "owner": "UNHCR"},
     {"type": "generators", "label": "Generators", "quantity": 25, "unit": "units",
      "location": "UNHRD Brindisi (IT)", "lat": 40.6453, "lon": 17.9461, "owner": "WFP"},
+    {"type": "rescue_boats", "label": "Rescue boats", "quantity": 8, "unit": "boats",
+     "location": "Marikina Hub", "lat": 14.6507, "lon": 121.1029, "owner": "Local Responders"},
+    {"type": "medics", "label": "Medic teams", "quantity": 12, "unit": "teams",
+     "location": "Quezon City", "lat": 14.6760, "lon": 121.0437, "owner": "DOH Philippines"},
 ]
 
 
