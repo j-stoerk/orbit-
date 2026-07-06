@@ -16,7 +16,7 @@ license: mit
 An agentic, **real-time disaster-coordination platform** modelled on the UN's
 **UNDAC** (United Nations Disaster Assessment and Coordination) operating model
 and the **OSOCC** (On-Site Operations Coordination Centre) concept from the
-*UNDAC Handbook, 8th Edition (2024)*.
+_UNDAC Handbook, 8th Edition (2024)_.
 
 It turns a raw distress report into a full operational picture — assessed,
 coordinated, resourced, reported and broadcast — through a team of cooperating
@@ -32,54 +32,67 @@ globe** in an EarthExplorer-style mission console.
 ## What it does
 
 ### The agent team (OSOCC cells)
+
 A report flows through six cooperating agents, streamed live to the UI:
 
-| Agent | UNDAC mapping | Output |
-|-------|---------------|--------|
-| **Ingestion** | F.1 Information Management | Structured incident (type, location, geocoded coords, needs, casualties) |
-| **Assessment (MIRA)** | F.2 Assessment & Analysis; Section K | Severity index (0–100), affected/displaced estimates, per-sector needs, priority actions, hazard-specific secondary hazards |
-| **Coordination (OSOCC)** | D. OSOCC Concept; G.6 ICC | Lead clusters, **3W matrix** (Who does What Where), coordination gaps, OSOCC tasking |
-| **Logistics** | G.11 Disaster logistics | Quantified resource request vs. live inventory, gap analysis, procurement recommendations |
-| **Information Management** | F.3 Reporting / IM products | A full **Situation Report (SitRep)** in OCHA format |
-| **Alerts & Notification** | A.2 / E.2 / F.4 | **Everbridge-style** severity-driven mass notifications with audience routing, channels and acknowledgement rules |
+| Agent                      | UNDAC mapping                        | Output                                                                                                                      |
+| -------------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| **Ingestion**              | F.1 Information Management           | Structured incident (type, location, geocoded coords, needs, casualties)                                                    |
+| **Assessment (MIRA)**      | F.2 Assessment & Analysis; Section K | Severity index (0–100), affected/displaced estimates, per-sector needs, priority actions, hazard-specific secondary hazards |
+| **Coordination (OSOCC)**   | D. OSOCC Concept; G.6 ICC            | Lead clusters, **3W matrix** (Who does What Where), coordination gaps, OSOCC tasking                                        |
+| **Logistics**              | G.11 Disaster logistics              | Quantified resource request vs. live inventory, gap analysis, procurement recommendations                                   |
+| **Information Management** | F.3 Reporting / IM products          | A full **Situation Report (SitRep)** in OCHA format                                                                         |
+| **Alerts & Notification**  | A.2 / E.2 / F.4                      | **Everbridge-style** severity-driven mass notifications with audience routing, channels and acknowledgement rules           |
 
 A **Human-In-The-Loop (HITL)** gate can pause the pipeline before committing
 resources (toggle in the UI; `POST /api/incidents/{id}/approve` to release).
 
+### Victim Ingest Webhook & Local POI Lookup
+
+The platform features an automated pipeline for public emergency reports sent by victims via SMS, WhatsApp, or web forms:
+
+- **Digital Mailbox Webhook (`POST /api/public/report`)**: Receives unstructured reports from the field. An ingestion agent structures the text to extract the disaster type, estimated affected people, location, and specific coordinates.
+- **Local POI Enrichment**: The system performs a spatial Overpass API query on OpenStreetMap to locate the closest hospitals and evacuation shelters within a 1.5 km walking radius. These POIs are embedded directly into the incident record with their calculated walking distances.
+- **Visual Callouts**: New victim reports appear on the 3D globe as a **yellow pin** with an expanding yellow pulsing ring to stand out from background disaster feeds.
+- **Local Resource Dispatch**: Coordinators can view the report details, needs, and nearby POIs, then click **Dispatch** to allocate a rescue boat and a medic team. The system deducts the resources from the nearest localized warehouses (e.g., Marikina Hub or Quezon City) and updates the pin to green (Dispatched).
+
 ### The killer workflow: first report → shareable OSOCC briefing
+
 Every incident is structured so an operator answers three questions in seconds —
 **what happened, who owns what next, what is still uncertain** — and can export a
 self-contained briefing package (`GET /api/incidents/{id}/briefing`, printable to PDF).
 
 - **Confidence is separate from severity** ([backend/analysis.py](backend/analysis.py)):
-  a loud single report is *Unverified*; a multi-source-confirmed event is *Confirmed*.
+  a loud single report is _Unverified_; a multi-source-confirmed event is _Confirmed_.
   Confidence is computed from cross-feed corroboration + news + social + reported impacts.
 - **Evidence-first explainability**: an evidence ledger backs the picture, and every
   cluster recommendation carries a "because…" rationale.
 - **Human acknowledgement loops**: 3W cluster taskings and alerts are machine
-  *proposals* a human can **Accept / Reject / Amend**; open questions can be answered.
+  _proposals_ a human can **Accept / Reject / Amend**; open questions can be answered.
   The briefing package reflects those human decisions.
 - **MIRA unanswered-questions**: the gaps that still need resolving, by category.
 - **On-the-ground context** ([backend/data/context.py](backend/data/context.py)),
   fused per incident and shown in the brief + briefing:
-  - **NASA GIBS/VIIRS satellite imagery** of the site *(keyless)*
-  - **USGS ShakeMap** ground-shaking image for earthquakes *(keyless)*
-  - **RainViewer** live precipitation-radar tile *(keyless)*
-  - **OpenSky** live aircraft → airspace / airport-operability signal *(keyless)*
-  - **Open-Meteo** operating conditions; **OSM/Overpass** hospitals + aerodromes *(keyless)*
-  - **NASA FIRMS** active-fire detections *(free key)* — also corroborates wildfires
-  - **OpenAQ v3** ground air quality (PM2.5) *(free key)*
+  - **NASA GIBS/VIIRS satellite imagery** of the site _(keyless)_
+  - **USGS ShakeMap** ground-shaking image for earthquakes _(keyless)_
+  - **RainViewer** live precipitation-radar tile _(keyless)_
+  - **OpenSky** live aircraft → airspace / airport-operability signal _(keyless)_
+  - **Open-Meteo** operating conditions; **OSM/Overpass** hospitals + aerodromes _(keyless)_
+  - **NASA FIRMS** active-fire detections _(free key)_ — also corroborates wildfires
+  - **OpenAQ v3** ground air quality (PM2.5) _(free key)_
   - **VesselAPI** live AIS vessels (maritime SAR assets) + nearest seaports (sea
-    relief access) *(key)*
-  - **ACLED** conflict/unrest events *(account + API access activation required)*
+    relief access) _(key)_
+  - **ACLED** conflict/unrest events _(account + API access activation required)_
 
   Keys live in a gitignored `.env` (loaded at startup): `FIRMS_MAP_KEY`,
   `OPENAQ_API_KEY`, `VESSEL_API_KEY`, `ACLED_EMAIL`/`ACLED_PASSWORD`. Every source
   degrades gracefully if its key is absent.
+
 - **Collaboration**: decision log, notes, agent timeline per incident.
 - **Value metrics**: time-to-briefing, confidence score, open-questions count.
 
 ### Situational awareness & alerting
+
 - **Live feeds** ([backend/data/live_feeds.py](backend/data/live_feeds.py)):
   USGS earthquakes, GDACS alerts, NASA EONET (wildfires/storms/volcanoes) and
   ReliefWeb — all keyless, normalised for the globe (~130+ live events).
@@ -87,15 +100,16 @@ self-contained briefing package (`GET /api/incidents/{id}/briefing`, printable t
   news (Google News RSS, GDELT fallback) and social posts (Mastodon public
   timelines) shown in the brief's **News** tab. Keyless, source-attributed.
 - **Monitoring engine** ([backend/monitor.py](backend/monitor.py)): a background
-  poller detects *genuinely new* events (deduplicated against the backlog),
+  poller detects _genuinely new_ events (deduplicated against the backlog),
   matches them against user **watch rules** (min severity · hazard types ·
   region), and **dispatches real notifications**:
   - **Webhook** (keyless) — Slack / Discord / Teams / any incoming webhook.
   - **Email** (optional) — SMTP, enabled via `SMTP_*` env vars.
-  Manage it all in the **Monitoring** view: set a channel, add rules, send a
-  test alert, and watch the triggered-alert log.
+    Manage it all in the **Monitoring** view: set a channel, add rules, send a
+    test alert, and watch the triggered-alert log.
 
 ### Grounding — nothing is fabricated
+
 - **Real exposure** ([backend/data/exposure.py](backend/data/exposure.py)): when
   the pipeline runs on a live event, the assessment is grounded in **USGS PAGER**
   (population exposed to damaging shaking + official fatality alert bands) and
@@ -103,7 +117,7 @@ self-contained briefing package (`GET /api/incidents/{id}/briefing`, printable t
   dead/displaced/affected). Every figure carries a **source link**.
 - **No invention**: if a figure isn't in a real source or stated in the report,
   it is shown as **"not estimated"** (never guessed). Severity is anchored to the
-  real GDACS/PAGER alert level; with no data it is flagged *preliminary*.
+  real GDACS/PAGER alert level; with no data it is flagged _preliminary_.
 - **Resource registry** ([backend/resources.py](backend/resources.py)): the
   inventory is a registry of **real, located, fully editable** records (location,
   owner, provenance) — add / edit / delete in the **Resources** view. The
@@ -114,6 +128,7 @@ self-contained briefing package (`GET /api/incidents/{id}/briefing`, printable t
   secondary hazards, priority sectors, early actions and the "golden hours" window.
 
 ### The interface (EarthExplorer-style, 3D)
+
 - Interactive **3D world** (globe.gl / three.js) with live disaster markers,
   sized by magnitude and coloured by severity, pulsing rings on critical events.
 - Click any live event → it pre-fills the intake and you can **run the agent
@@ -142,6 +157,7 @@ to it, done — live at `https://<user>-orbit.hf.space`. The Dockerfile listens 
 7860 (HF default), so no extra config. WebSockets work; it only sleeps after 48h idle.
 
 Other Docker hosts:
+
 ```bash
 gcloud run deploy orbit --source . --allow-unauthenticated   # Google Cloud Run (needs billing acct)
 # Render: New → Web Service → connect this repo (auto-detects the Dockerfile)
@@ -173,22 +189,24 @@ export RELIEFWEB_APPNAME="your-registered-appname"  # enables the ReliefWeb feed
 
 ## API
 
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| `GET`  | `/api/health` | status + which reasoning engine is active |
-| `GET`  | `/api/events?min_magnitude=4.5` | aggregated live events for the globe |
-| `GET`  | `/api/events/{earthquakes,gdacs,eonet,reliefweb}` | individual feeds |
-| `GET/POST/DELETE` | `/api/monitor/rules` | manage watch rules |
-| `GET/POST` | `/api/monitor/channels` | get/set webhook + email |
-| `GET`  | `/api/monitor/alerts` · `/api/monitor/status` | triggered alerts & engine status |
-| `POST` | `/api/monitor/test` · `/api/monitor/poll` | send a test alert · poll feeds now |
-| `GET/POST/PUT/DELETE` | `/api/resources` · `/api/resources/{id}` | editable located resource registry |
-| `POST` | `/api/run` | run the full pipeline (synchronous) |
-| `WS`   | `/ws/run` | run the pipeline with **live streamed agent reasoning** |
-| `GET`  | `/api/incidents` · `/api/incidents/{id}` | stored incidents |
-| `POST` | `/api/incidents/{id}/approve` | HITL: approve dispatch & commit inventory |
-| `GET`  | `/api/inventory` | live operational stock |
-| `GET`  | `/api/hazards` | the hazard impact knowledge base |
+| Method                | Endpoint                                          | Purpose                                                                          |
+| --------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `GET`                 | `/api/health`                                     | status + which reasoning engine is active                                        |
+| `GET`                 | `/api/events?min_magnitude=4.5`                   | aggregated live events for the globe                                             |
+| `GET`                 | `/api/events/{earthquakes,gdacs,eonet,reliefweb}` | individual feeds                                                                 |
+| `GET/POST/DELETE`     | `/api/monitor/rules`                              | manage watch rules                                                               |
+| `GET/POST`            | `/api/monitor/channels`                           | get/set webhook + email                                                          |
+| `GET`                 | `/api/monitor/alerts` · `/api/monitor/status`     | triggered alerts & engine status                                                 |
+| `POST`                | `/api/monitor/test` · `/api/monitor/poll`         | send a test alert · poll feeds now                                               |
+| `GET/POST/PUT/DELETE` | `/api/resources` · `/api/resources/{id}`          | editable located resource registry                                               |
+| `POST`                | `/api/run`                                        | run the full pipeline (synchronous)                                              |
+| `WS`                  | `/ws/run`                                         | run the pipeline with **live streamed agent reasoning**                          |
+| `GET`                 | `/api/incidents` · `/api/incidents/{id}`          | stored incidents                                                                 |
+| `POST`                | `/api/incidents/{id}/approve`                     | HITL: approve dispatch & commit inventory                                        |
+| `POST`                | `/api/public/report`                              | public webhook: ingest victim text, parse location & needs, enrich with OSM POIs |
+| `POST`                | `/api/incidents/{id}/dispatch`                    | dispatch local rescue assets and deduct them from hub inventory                  |
+| `GET`                 | `/api/inventory`                                  | live operational stock                                                           |
+| `GET`                 | `/api/hazards`                                    | the hazard impact knowledge base                                                 |
 
 ---
 
@@ -197,7 +215,7 @@ export RELIEFWEB_APPNAME="your-registered-appname"  # enables the ReliefWeb feed
 ```
 crisis_coordinator/
 ├─ run.py                       # launcher (uvicorn)
-├─ inventory.json               # live operational stock (mutated on dispatch)
+├─ resources.json               # localized live resource inventory
 ├─ backend/
 │  ├─ app.py                    # FastAPI: REST + WebSocket + static frontend
 │  ├─ orchestrator.py           # OSOCC pipeline (chains the agents, HITL gate)
@@ -205,8 +223,10 @@ crisis_coordinator/
 │  ├─ llm.py                    # optional Claude layer (graceful heuristic fallback)
 │  ├─ store.py                  # in-memory incident store
 │  ├─ skills_geo.py             # geocoding (Nominatim + offline gazetteer)
-│  ├─ agents/                   # ingestion, assessment, coordination,
-│  │                            #   logistics, infomanagement, alerts
+│  ├─ skills/
+│  │  └─ local_poi.py           # OSM local POI search (hospitals, shelters)
+│  ├─ agents/                   # ingestion, assessment, coordination, logistics, etc.
+│  │  └─ ingestion.py           # parses inbound message text & structures data
 │  └─ data/
 │     ├─ hazard_kb.py           # UNDAC Handbook Section K knowledge base
 │     └─ live_feeds.py          # USGS / GDACS / ReliefWeb
@@ -215,6 +235,7 @@ crisis_coordinator/
 ```
 
 ### Design choices (Everbridge / NVIDIA GTC influences)
+
 - **Critical Event Management loop** (Everbridge): detect → assess → notify the
   right audiences over the right channels → require acknowledgement → escalate.
   Implemented in the Alerts agent with severity-based routing and a public
@@ -228,6 +249,7 @@ crisis_coordinator/
 > purposes and must be verified against ground truth before operational use.
 
 ### Legacy CLI
+
 The original stdio-MCP CLI pipeline ([main.py](main.py), `agents/`, `skills/`,
 `mcp_server/`) is preserved for reference and still runs via `python main.py`.
 The platform above supersedes it.
