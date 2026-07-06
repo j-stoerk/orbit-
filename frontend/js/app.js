@@ -4,6 +4,7 @@
 const API = "";
 let currentIncident = null;   // last pipeline result (full Incident)
 let liveEvents = [];
+let incidentCache = [];
 let filteredEvents = [];      // events currently shown (after layer/search/sev filters)
 let evSearch = "";
 let evSevFilter = "all";
@@ -33,8 +34,10 @@ window.addEventListener("DOMContentLoaded", () => {
   loadHealth();
   refreshFeeds();
   loadResources();
+  loadIncidents();
   loadHazards();
   refreshAlertBadge();
+  connectLiveWS();
   setInterval(refreshFeeds, 120000);       // auto-refresh live feeds every 2 min
   setInterval(refreshAlertBadge, 60000);   // refresh alert badge every minute
 });
@@ -139,12 +142,56 @@ function renderEvents() {
   } else {
     CrisisGlobe.setImpactCircles([]);
   }
+
+  const victimPoints = incidentCache.filter((inc) => inc.id && inc.id.startsWith("vic-")).map((inc) => {
+    const di = inc.incident;
+    const estCasualties = di.estimated_casualties || 0;
+    return {
+      id: inc.id,
+      lat: di.coordinates ? di.coordinates.lat : null,
+      lon: di.coordinates ? di.coordinates.lon : null,
+      severity: estCasualties > 0 ? "Critical" : "High",
+      type: di.disaster_type || "Distress",
+      source: "Victim Ingest",
+      title: `Distress: ${di.location}`,
+      country: di.location,
+      is_victim: true,
+      status: inc.status
+    };
+  });
+
+  const allPoints = [...filteredEvents, ...victimPoints];
+  CrisisGlobe.setEvents(allPoints);
+
+  // pulse rings on Critical/High standard events + undispatched victim reports
+  const ringPoints = [
+    ...filteredEvents.filter((e) => SEV_RANK[e.severity] >= 3),
+    ...victimPoints.filter((vp) => vp.status !== "Dispatched")
+  ];
+  CrisisGlobe.setActiveRings(ringPoints);
   renderEventList();
 }
 
 // Ranked, searchable triage list of live events in the sidebar.
 function renderEventList() {
-  let list = filteredEvents.slice();
+  const victimPoints = incidentCache.filter((inc) => inc.id && inc.id.startsWith("vic-")).map((inc) => {
+    const di = inc.incident;
+    const estCasualties = di.estimated_casualties || 0;
+    return {
+      id: inc.id,
+      lat: di.coordinates ? di.coordinates.lat : null,
+      lon: di.coordinates ? di.coordinates.lon : null,
+      severity: estCasualties > 0 ? "Critical" : "High",
+      type: di.disaster_type || "Distress",
+      source: "Victim Ingest",
+      title: `Distress: ${di.location}`,
+      country: di.location,
+      is_victim: true,
+      status: inc.status
+    };
+  });
+
+  let list = [...filteredEvents, ...victimPoints];
   if (evSevFilter !== "all") list = list.filter((e) => e.severity === evSevFilter);
   if (evSearch) list = list.filter((e) =>
     `${e.title} ${e.type} ${e.source} ${e.country || ""}`.toLowerCase().includes(evSearch));
@@ -156,15 +203,17 @@ function renderEventList() {
   const el = $("#evList");
   if (!list.length) { el.innerHTML = `<div class="ev-empty">No matching live events.</div>`; return; }
   el.innerHTML = list.map((e, i) => {
-    const mag = (e.source === "USGS" && e.magnitude) ? "M" + e.magnitude : (e.severity || "").slice(0, 4);
-    return `<div class="ev-item ${e.id === selectedEventId ? "selected" : ""}" data-id="${esc(e.id)}">
-      <span class="ev-sev" style="background:${CrisisGlobe.severityColor(e.severity)}"></span>
+    const isVictim = e.is_victim;
+    const mag = isVictim ? (e.status === "Dispatched" ? "SENT" : "HELP") : ((e.source === "USGS" && e.magnitude) ? "M" + e.magnitude : (e.severity || "").slice(0, 4));
+    const borderStyle = isVictim ? `border-left: 3px solid ${e.status === "Dispatched" ? "#37d67a" : "#ffff00"}` : "";
+    return `<div class="ev-item ${e.id === selectedEventId ? "selected" : ""}" data-id="${esc(e.id)}" style="${borderStyle}">
+      <span class="ev-sev" style="background:${isVictim ? (e.status === "Dispatched" ? "#37d67a" : "#ffff00") : CrisisGlobe.severityColor(e.severity)}"></span>
       <div class="ev-main">
         <div class="ev-title">${esc((e.title || e.type || "Event").slice(0, 60))}</div>
         <div class="ev-meta">${esc(e.type)} · ${esc(e.source)}${e.country ? " · " + esc(e.country) : ""}</div>
       </div>
       <span class="ev-mag">${esc(mag)}</span>
-      <button class="ev-run" title="Run agent team on this event">▶</button>
+      <button class="ev-run" title="Run agent team on this event" ${isVictim ? 'style="display:none"' : ''}>▶</button>
     </div>`;
   }).join("");
   // wire rows
@@ -174,26 +223,37 @@ function renderEventList() {
       if (e.target.classList.contains("ev-run")) return;
       onEventClick(ev);
     });
-    row.querySelector(".ev-run").addEventListener("click", (e) => {
-      e.stopPropagation();
-      onEventClick(ev);
-      runPipeline();
-    });
+    const runBtn = row.querySelector(".ev-run");
+    if (runBtn) {
+      runBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        onEventClick(ev);
+        runPipeline();
+      });
+    }
   });
 }
 
 /* ---------------------------------------------- clicking a live event */
 function onEventClick(d) {
   selectedEventId = d.id;
-  activeLiveEvent = d;            // remember exact coords for the pipeline run
-  $("#runBtn").classList.add("armed");   // nudge the single run button
   CrisisGlobe.select(d.id);
   CrisisGlobe.focus(d.lat, d.lon, 0.7);
   renderEventList();
-  // Prefill intake with an auto-generated report so the operator can run the
-  // agent team on a real, live event in one click.
-  $("#reportInput").value = buildReportFromEvent(d);
-  showLiveEventBrief(d);
+
+  if (d.is_victim) {
+    activeLiveEvent = null;
+    $("#runBtn").classList.remove("armed");
+    const inc = incidentCache.find((i) => i.id === d.id);
+    if (inc) {
+      renderBrief(inc);
+    }
+  } else {
+    activeLiveEvent = d;            // remember exact coords for the pipeline run
+    $("#runBtn").classList.add("armed");   // nudge the single run button
+    $("#reportInput").value = buildReportFromEvent(d);
+    showLiveEventBrief(d);
+  }
 }
 
 function buildReportFromEvent(d) {
@@ -230,6 +290,39 @@ function showLiveEventBrief(d) {
   // live vessel routes near the clicked event (cleared if none / inland)
   if (d.lat != null) loadVesselTracks(d.lat, d.lon); else CrisisGlobe.setVesselTracks([]);
 }
+
+function connectLiveWS() {
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  const ws = new WebSocket(`${proto}//${location.host}/ws/live`);
+  
+  ws.onmessage = (ev) => {
+    try {
+      const data = JSON.parse(ev.data);
+      if (data.event === "new_victim_report") {
+        console.log("New victim report received via WebSocket:", data);
+        loadIncidents();
+      } else if (data.event === "incident_updated") {
+        console.log("Incident updated received via WebSocket:", data);
+        loadIncidents();
+        if (currentIncident && currentIncident.id === data.id) {
+          openIncident(data.id);
+        }
+      }
+    } catch (e) {
+      console.error("Error parsing live WebSocket message:", e);
+    }
+  };
+
+  ws.onclose = () => {
+    setTimeout(connectLiveWS, 3000);
+  };
+  
+  ws.onerror = (err) => {
+    console.error("Live WebSocket error:", err);
+    ws.close();
+  };
+}
+
 
 /* =================================================================
    PIPELINE — live WebSocket streaming of the agent team
@@ -378,6 +471,10 @@ function logLine(who, msg) {
 const OPERATOR = "operator";
 function renderBrief(inc) {
   currentIncident = inc;
+  if (inc.id && inc.id.startsWith("vic-")) {
+    renderVictimBrief(inc);
+    return;
+  }
   const di = inc.incident, a = inc.assessment, co = inc.coordination, lo = inc.logistics;
   const cf = inc.confidence, ctx = inc.context || {}, m = inc.metrics || {};
   $("#briefEmpty").hidden = true;
@@ -556,6 +653,118 @@ function renderBrief(inc) {
   $("#tab-overview").classList.add("active");
 }
 
+function renderVictimBrief(inc) {
+  currentIncident = inc;
+  const di = inc.incident;
+  $("#briefEmpty").hidden = true;
+  $("#briefContent").hidden = false;
+
+  const isDispatched = inc.status === "Dispatched";
+  
+  $("#briefSev").className = "sev-badge sev-" + (di.estimated_casualties ? "Critical" : "High");
+  $("#briefSev").textContent = di.estimated_casualties ? "Critical" : "High";
+  $("#briefConf").style.display = "none";
+  $("#briefExport").onclick = null;
+  $("#briefTitle").textContent = `DISTRESS BRIEF: ${di.location || "Victim"}`;
+  $("#briefSub").textContent = `Incident ID: ${inc.id}`;
+
+  if (di.coordinates && di.coordinates.lat != null) {
+    CrisisGlobe.focus(di.coordinates.lat, di.coordinates.lon, 0.85);
+  }
+
+  // Build needs chips
+  const needsHtml = di.specific_needs && di.specific_needs.length
+    ? di.specific_needs.map(n => {
+        let emoji = "📦";
+        if (n === "rescue_boats") emoji = "🛶";
+        else if (n === "medics") emoji = "🩺";
+        else if (n === "water") emoji = "💧";
+        return `<span class="tchip">${emoji} ${esc(n.replace("_", " ").toUpperCase())}</span>`;
+      }).join(" ")
+    : "None";
+
+  // Build POI list
+  const poisHtml = inc.local_pois && inc.local_pois.length
+    ? inc.local_pois.map((poi, i) => {
+        let emoji = "🏥";
+        if (poi.type === "school") emoji = "🏫";
+        else if (poi.type === "fire_station") emoji = "🚒";
+        return `<div class="ctx-line" style="margin: 8px 0; font-size: 13px;">
+          ${i + 1}. ${emoji} <b>${esc(poi.name)}</b> (${esc(poi.distance)}) — <i>${esc(poi.type)}</i>
+        </div>`;
+      }).join("")
+    : `<div class="ev-empty">No critical POIs found within 1.5km.</div>`;
+
+  // Get hub inventory
+  const marikinaBoats = resourceCache.find(r => r.type === "rescue_boats" && r.location.includes("Marikina"))?.quantity || 0;
+  const qcMedics = resourceCache.find(r => r.type === "medics" && r.location.includes("Quezon"))?.quantity || 0;
+
+  const dispatchHtml = isDispatched
+    ? `<div style="background: rgba(55, 214, 122, 0.1); border: 1px solid #37d67a; color: #37d67a; text-align: center; padding: 10px; border-radius: 4px; font-weight: bold; margin-top: 15px; font-size: 13px;">
+         ✓ HELP DISPATCHED (En Route)
+       </div>`
+    : `<button class="btn-primary" onclick="dispatchVictimHelp('${inc.id}')" style="width: 100%; margin-top: 15px; font-weight: bold; background: #37d67a; color: #0f172a; padding: 10px; border-radius: 4px; border: none; cursor: pointer;">
+         [ DISPATCH 1 BOAT & 1 MEDIC TEAM ]
+       </button>`;
+
+  $("#tab-overview").innerHTML = `
+    <div style="font-family: inherit; color: var(--txt); padding: 5px;">
+      <h3 style="font-size: 15px; margin: 0 0 10px 0; color: #ff3b46;">🚨 VICTIM DISTRESS REPORT (ID: ${esc(inc.id)})</h3>
+      <p style="background: rgba(255,210,63,0.1); border-left: 4px solid #ffd23f; padding: 10px; font-style: italic; border-radius: 4px; line-height: 1.4; margin: 10px 0;">
+        "${esc(di.raw_report)}"
+      </p>
+      
+      <div style="margin: 12px 0;">
+        <b>Needs:</b> ${needsHtml}
+      </div>
+      
+      <div style="margin: 12px 0;">
+        <b>Severity:</b> <span style="color: ${di.estimated_casualties ? '#ff3b46' : '#ff8c2e'}; font-weight: bold;">
+          ${di.estimated_casualties ? 'Critical' : 'High'} (${di.estimated_casualties ? 'Active injuries reported' : 'Evacuation needed'})
+        </span>
+      </div>
+
+      <h3 style="font-size: 15px; margin: 25px 0 10px 0; border-top: 1px solid var(--line); padding-top: 15px;">📍 LOCAL ASSISTANCE ANALYSIS (1.5km Radius)</h3>
+      <div style="line-height: 1.5;">
+        ${poisHtml}
+      </div>
+
+      <h3 style="font-size: 15px; margin: 25px 0 10px 0; border-top: 1px solid var(--line); padding-top: 15px;">📦 LOGISTICS ACTIONS</h3>
+      <div style="font-size: 12.5px; line-height: 1.4; margin-bottom: 10px;">
+        * Available Inventory: <b>${marikinaBoats} Rescue Boats</b> (Marikina Hub), <b>${qcMedics} Medic Teams</b> (Quezon City).
+      </div>
+      
+      ${dispatchHtml}
+    </div>
+  `;
+
+  // Set other tabs to empty states
+  ["sitrep", "3w", "logistics", "alerts", "media", "log"].forEach((t) => {
+    const pane = $("#tab-" + t);
+    if (pane) pane.innerHTML = `<div class="empty-state">Not applicable for victim reports.</div>`;
+  });
+}
+
+async function dispatchVictimHelp(id) {
+  try {
+    const res = await (await fetch(`${API}/api/incidents/${id}/dispatch`, { method: "POST" })).json();
+    if (res.status === "success") {
+      logLine("HITL", `Help dispatched for victim report ${id}.`);
+      await loadIncidents();
+      await loadResources();
+      const inc = incidentCache.find((i) => i.id === id);
+      if (inc) {
+        renderVictimBrief(inc);
+      }
+    } else {
+      console.error("Dispatch failed:", res);
+    }
+  } catch (e) {
+    console.error("Error dispatching help:", e);
+  }
+}
+window.dispatchVictimHelp = dispatchVictimHelp;
+
 function renderLogTab(inc) {
   const ev = inc.evidence || [], dec = inc.decisions || [], com = inc.comments || [];
   $("#tab-log").innerHTML = `
@@ -691,6 +900,7 @@ function copySitRep(id) {
 async function loadIncidents() {
   const r = await (await fetch(API + "/api/incidents")).json();
   const list = r.incidents || [];
+  incidentCache = list;
   $("#incidentsList").innerHTML = list.length ? list.map((i) => `
     <div class="inc-card" onclick='openIncident("${i.id}")'>
       <div>
@@ -703,6 +913,7 @@ async function loadIncidents() {
       </div>
     </div>`).join("")
     : `<div class="empty-state">No incidents yet. Run the agent team from the left panel.</div>`;
+  renderEvents();
 }
 
 async function openIncident(id) {

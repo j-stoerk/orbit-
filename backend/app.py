@@ -35,8 +35,10 @@ from .resources import STORE as RESOURCES, Resource
 from .data import live_feeds
 from .data.hazard_kb import HAZARD_PROFILES, list_hazards
 from .monitor import ENGINE, WatchRule, Channels
-from .models import Comment, Decision
+from .models import Comment, Decision, Incident
 from .briefing import render_briefing
+from .agents.ingestion import run_ingestion_agent
+from .skills.local_poi import fetch_local_pois
 
 _HERE = os.path.dirname(__file__)
 _FRONTEND = os.path.normpath(os.path.join(_HERE, "..", "frontend"))
@@ -73,6 +75,11 @@ class RunRequest(BaseModel):
     lon: Optional[float] = None
     location: Optional[str] = None
     exposure_ref: Optional[dict] = None
+
+
+class PublicReportRequest(BaseModel):
+    sender_phone: str
+    message: str
 
 
 # ---------------------------------------------------------------- meta / health
@@ -243,6 +250,71 @@ async def approve(incident_id: str):
     return {"status": "approved", "incident": inc.model_dump()}
 
 
+@app.post("/api/public/report")
+async def public_report(req: PublicReportRequest):
+    import uuid
+    # 1. AI Text Ingestion via run_ingestion_agent
+    di = await asyncio.to_thread(run_ingestion_agent, req.message)
+    
+    # 2. Local POI Enrichment
+    local_pois = []
+    lat = di.coordinates.lat
+    lon = di.coordinates.lon
+    if lat is not None and lon is not None:
+        local_pois = await asyncio.to_thread(fetch_local_pois, lat, lon, 1500)
+        
+    victim_id = f"vic-{uuid.uuid4().hex[:4]}"
+    
+    # Create the incident record
+    record = Incident(
+        id=victim_id,
+        status="New",
+        incident=di,
+        local_pois=local_pois
+    )
+    record.log("Webhook", f"Received public distress report from {req.sender_phone}.")
+    if local_pois:
+        record.log("POI Enrichment", f"Enriched with {len(local_pois)} local POIs.")
+        
+    STORE.add(record)
+    
+    # WebSocket Broadcast
+    event_data = {
+        "event": "new_victim_report",
+        "id": victim_id,
+        "lat": lat,
+        "lon": lon
+    }
+    await broadcast_live_event(event_data)
+    
+    return {"status": "success", "incident": record.model_dump()}
+
+
+@app.post("/api/incidents/{incident_id}/dispatch")
+async def dispatch_incident(incident_id: str):
+    inc = STORE.get(incident_id)
+    if not inc:
+        raise HTTPException(404, "Incident not found")
+        
+    # Deduct 1 rescue boat and 1 medic team
+    allocated_boats = RESOURCES.consume("rescue_boats", 1)
+    allocated_medics = RESOURCES.consume("medics", 1)
+    
+    inc.status = "Dispatched"
+    inc.approved = True
+    inc.log("HITL", f"Dispatched rescue resources. Allocated: {allocated_boats} rescue boats, {allocated_medics} medics.")
+    STORE.update(inc)
+    
+    # WebSocket Broadcast update
+    await broadcast_live_event({
+        "event": "incident_updated",
+        "id": incident_id,
+        "status": "Dispatched"
+    })
+    
+    return {"status": "success", "incident": inc.model_dump()}
+
+
 class AckRequest(BaseModel):
     target: str            # "cluster:<id>" | "notification:<id>" | "question:<id>"
     status: str = "Accepted"   # Accepted | Rejected | Amended | Answered
@@ -367,6 +439,33 @@ async def run(req: RunRequest):
     )
     STORE.add(record)
     return record.model_dump()
+
+
+_LIVE_SOCKETS: set[WebSocket] = set()
+
+
+async def broadcast_live_event(data: dict):
+    for ws in list(_LIVE_SOCKETS):
+        try:
+            await ws.send_json(data)
+        except Exception:
+            pass
+
+
+@app.websocket("/ws/live")
+async def ws_live(ws: WebSocket):
+    await ws.accept()
+    _LIVE_SOCKETS.add(ws)
+    try:
+        while True:
+            await ws.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        try:
+            _LIVE_SOCKETS.remove(ws)
+        except KeyError:
+            pass
 
 
 # ---------------------------------------------------------------- WebSocket (live agents)
