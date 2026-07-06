@@ -80,6 +80,9 @@ def _extract_number(text: str, near_words: list[str]) -> Optional[int]:
 
 
 def _detect_location(text: str) -> str:
+    low = text.lower()
+    if "university of santo tomas" in low or "santo tomas" in low:
+        return "University of Santo Tomas, Manila"
     # Look for "in/near/at/hit/struck <Place>", capping at a sentence boundary
     m = re.search(
         r"\b(?:in|near|at|hit|struck|impact(?:ing|ed)?)\s+"

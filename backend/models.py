@@ -190,6 +190,7 @@ class Incident(BaseModel):
     logistics: Optional[LogisticsPlan] = None
     sitrep: Optional[SitRep] = None
     notifications: List[Notification] = Field(default_factory=list)
+    local_pois: List[Dict[str, Any]] = Field(default_factory=list)
     # explainability & uncertainty
     confidence: Optional[Confidence] = None
     evidence: List[Evidence] = Field(default_factory=list)
