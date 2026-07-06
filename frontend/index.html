@@ -121,7 +121,92 @@
       </div>
 
       <div id="incidentsView" class="view">
-        <div class="view-pad" id="incidentsList"></div>
+        <div class="incidents-dashboard">
+          <div class="dashboard-left">
+            <!-- KPI Stats Row -->
+            <div class="kpi-grid">
+              <div class="kpi-card">
+                <b id="kpiTotal">0</b>
+                <span>Total Reports</span>
+              </div>
+              <div class="kpi-card">
+                <b id="kpiAffected">0</b>
+                <span>Total Affected</span>
+              </div>
+              <div class="kpi-card">
+                <b id="kpiDispatched">0</b>
+                <span>Dispatched</span>
+              </div>
+            </div>
+
+            <!-- Filters Panel -->
+            <div class="filter-panel">
+              <input id="dashSearch" class="search" placeholder="🔍 Search place, type, or ID..." style="margin-bottom:8px;" />
+              <div class="filter-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:4px;">
+                <select id="dashType" class="sel">
+                  <option value="all">All Types</option>
+                  <option value="Earthquake">Earthquake</option>
+                  <option value="Flood">Flood</option>
+                  <option value="Tropical Cyclone">Cyclone</option>
+                  <option value="Volcano">Volcano</option>
+                  <option value="Wildfire">Wildfire</option>
+                  <option value="Distress">Distress</option>
+                </select>
+                <select id="dashSev" class="sel">
+                  <option value="all">All Severities</option>
+                  <option value="Critical">Critical</option>
+                  <option value="High">High</option>
+                  <option value="Moderate">Moderate</option>
+                  <option value="Low">Low</option>
+                </select>
+              </div>
+              <select id="dashStatus" class="sel" style="width:100%;">
+                <option value="all">All Statuses</option>
+                <option value="New">New</option>
+                <option value="Assessing">Assessing</option>
+                <option value="Coordinating">Coordinating</option>
+                <option value="Dispatched">Dispatched</option>
+                <option value="Closed">Closed</option>
+              </select>
+            </div>
+
+            <!-- Analytics Visualizations -->
+            <div class="analytics-card">
+              <h4>Severity Profile Breakdown</h4>
+              <div class="progress-bar-container">
+                <div class="progress-bar-track">
+                  <div id="progCritical" class="progress-segment crit" style="width: 0%" title="Critical"></div>
+                  <div id="progHigh" class="progress-segment high" style="width: 0%" title="High"></div>
+                  <div id="progModerate" class="progress-segment mod" style="width: 0%" title="Moderate"></div>
+                  <div id="progLow" class="progress-segment low" style="width: 0%" title="Low"></div>
+                </div>
+                <div class="progress-legend">
+                  <span><i class="sw crit" style="display:inline-block; margin-right:3px;"></i>Crit (<b id="lblCrit">0</b>)</span>
+                  <span><i class="sw high" style="display:inline-block; margin-right:3px;"></i>High (<b id="lblHigh">0</b>)</span>
+                  <span><i class="sw mod" style="display:inline-block; margin-right:3px;"></i>Mod (<b id="lblMod">0</b>)</span>
+                  <span><i class="sw low" style="display:inline-block; margin-right:3px;"></i>Low (<b id="lblLow">0</b>)</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Scrollable Incident Card List -->
+            <div class="inc-list-container">
+              <div id="dashIncidentsList"></div>
+            </div>
+          </div>
+
+          <!-- Right Column: Interactive Incident Report Sheet -->
+          <div class="dashboard-right">
+            <div id="reportPlaceholder" class="empty-state" style="margin: auto;">
+              <div class="brief-empty-icon">📊</div>
+              <h3 style="color:var(--txt-dim); margin-bottom:8px;">Operational Report Panel</h3>
+              <p style="color:var(--txt-faint); max-width:280px; margin:0 auto; line-height:1.5;">Select an incident from the left list to review its complete coordination status, logistics, context data, and evidence ledger.</p>
+            </div>
+            <div id="detailedReportContent" class="report-scroll" hidden>
+              <!-- Filled Dynamically -->
+            </div>
+          </div>
+        </div>
       </div>
 
       <div id="resourcesView" class="view">

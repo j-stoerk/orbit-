@@ -12,6 +12,13 @@ let selectedEventId = null;
 let activeLiveEvent = null;    // live event the report was generated from (exact coords)
 const SEV_RANK = { Critical: 4, High: 3, Moderate: 2, Low: 1 };
 
+// Dashboard filters and selection states
+let selectedDashboardIncidentId = null;
+let dashSearch = "";
+let dashType = "all";
+let dashSev = "all";
+let dashStatus = "all";
+
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
@@ -68,6 +75,12 @@ function wireUI() {
   $("#magRange").addEventListener("change", refreshFeeds);
   ["layerEq", "layerGdacs", "layerRw", "layerImpact"].forEach((id) =>
     $("#" + id).addEventListener("change", () => renderEvents()));
+
+  // dashboard filters
+  $("#dashSearch").addEventListener("input", (e) => { dashSearch = e.target.value.toLowerCase(); renderDashboard(); });
+  $("#dashType").addEventListener("change", (e) => { dashType = e.target.value; renderDashboard(); });
+  $("#dashSev").addEventListener("change", (e) => { dashSev = e.target.value; renderDashboard(); });
+  $("#dashStatus").addEventListener("change", (e) => { dashStatus = e.target.value; renderDashboard(); });
 
   // live-events search + severity filter
   $("#evSearch").addEventListener("input", (e) => { evSearch = e.target.value.toLowerCase(); renderEventList(); });
@@ -901,20 +914,352 @@ async function loadIncidents() {
   const r = await (await fetch(API + "/api/incidents")).json();
   const list = r.incidents || [];
   incidentCache = list;
-  $("#incidentsList").innerHTML = list.length ? list.map((i) => `
-    <div class="inc-card" onclick='openIncident("${i.id}")'>
-      <div>
-        <h3>${esc(i.incident.disaster_type)} · ${esc(i.incident.location)}</h3>
-        <div class="meta">${esc(i.id)} · ${esc(i.created_at).slice(0, 19).replace("T", " ")} UTC</div>
-      </div>
-      <div class="right">
-        <span class="sev-badge sev-${i.assessment ? i.assessment.severity_score : "Moderate"}">${i.assessment ? i.assessment.severity_score : "—"}</span>
-        <div style="margin-top:6px">${esc(i.status)}</div>
-      </div>
-    </div>`).join("")
-    : `<div class="empty-state">No incidents yet. Run the agent team from the left panel.</div>`;
+  renderDashboard();
   renderEvents();
 }
+
+function renderDashboard() {
+  // Apply filters
+  let filtered = incidentCache;
+  if (dashType !== "all") {
+    filtered = filtered.filter((i) => i.incident.disaster_type === dashType);
+  }
+  if (dashSev !== "all") {
+    filtered = filtered.filter((i) => i.assessment && i.assessment.severity_score === dashSev);
+  }
+  if (dashStatus !== "all") {
+    filtered = filtered.filter((i) => i.status === dashStatus);
+  }
+  if (dashSearch) {
+    filtered = filtered.filter((i) => 
+      `${i.id} ${i.incident.disaster_type} ${i.incident.location} ${i.status}`.toLowerCase().includes(dashSearch)
+    );
+  }
+
+  // Compute stats
+  let totalAffected = 0;
+  let dispatchedCount = 0;
+  let sevCounts = { Critical: 0, High: 0, Moderate: 0, Low: 0 };
+  
+  filtered.forEach((i) => {
+    if (i.assessment && i.assessment.affected_population) {
+      totalAffected += i.assessment.affected_population;
+    } else if (i.incident && i.incident.estimated_affected) {
+      totalAffected += i.incident.estimated_affected;
+    }
+    if (i.status === "Dispatched") dispatchedCount++;
+    
+    const sev = i.assessment ? i.assessment.severity_score : "Moderate";
+    if (sevCounts[sev] !== undefined) {
+      sevCounts[sev]++;
+    } else {
+      sevCounts.Moderate++;
+    }
+  });
+
+  // Update KPI displays
+  $("#kpiTotal").textContent = filtered.length;
+  $("#kpiAffected").textContent = totalAffected >= 1000000 
+    ? (totalAffected / 1000000).toFixed(1) + "M" 
+    : (totalAffected >= 1000 ? (totalAffected / 1000).toFixed(1) + "k" : totalAffected);
+  $("#kpiDispatched").textContent = dispatchedCount;
+
+  // Update Progress bars
+  const total = filtered.length || 1;
+  const pCrit = ((sevCounts.Critical / total) * 100).toFixed(1);
+  const pHigh = ((sevCounts.High / total) * 100).toFixed(1);
+  const pMod = ((sevCounts.Moderate / total) * 100).toFixed(1);
+  const pLow = ((sevCounts.Low / total) * 100).toFixed(1);
+
+  $("#progCritical").style.width = pCrit + "%";
+  $("#progHigh").style.width = pHigh + "%";
+  $("#progModerate").style.width = pMod + "%";
+  $("#progLow").style.width = pLow + "%";
+
+  $("#lblCrit").textContent = sevCounts.Critical;
+  $("#lblHigh").textContent = sevCounts.High;
+  $("#lblMod").textContent = sevCounts.Moderate;
+  $("#lblLow").textContent = sevCounts.Low;
+
+  // Render cards
+  const container = $("#dashIncidentsList");
+  if (!filtered.length) {
+    container.innerHTML = `<div class="empty-state">No matching reports.</div>`;
+    $("#reportPlaceholder").hidden = false;
+    $("#detailedReportContent").hidden = true;
+    return;
+  }
+
+  container.innerHTML = filtered.map((i) => {
+    const isSel = i.id === selectedDashboardIncidentId;
+    const isVictim = i.id && i.id.startsWith("vic-");
+    const di = i.incident;
+    const estAffected = (i.assessment && i.assessment.affected_population != null) ? i.assessment.affected_population : di.estimated_affected;
+    const metaStats = estAffected ? `Affected: ${fmt(estAffected)}` : `Needs: ${di.specific_needs ? di.specific_needs.slice(0, 2).join(",") : "—"}`;
+    const borderStyle = isVictim ? `border-left: 3px solid ${i.status === "Dispatched" ? "#37d67a" : "#ffff00"}` : "";
+    return `
+      <div class="inc-card ${isSel ? "selected" : ""}" onclick='openDashboardIncident("${i.id}")' style="${borderStyle}">
+        <div style="flex:1; min-width:0; text-align:left;">
+          <h3 style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:12px; margin:0; color:#fff;">${esc(di.disaster_type)} · ${esc(di.location)}</h3>
+          <div class="meta" style="font-size:10px; color:var(--txt-faint); margin-top:3px;">${esc(i.id)} · ${esc(i.created_at).slice(11, 16)} UTC · ${metaStats}</div>
+        </div>
+        <div class="right" style="flex-shrink:0; text-align:right;">
+          <span class="sev-badge sev-${i.assessment ? i.assessment.severity_score : "Moderate"}" style="font-size:8px; padding:2px 5px; border-radius:3px;">${i.assessment ? i.assessment.severity_score : "Moderate"}</span>
+          <div style="margin-top:4px; font-size:9.5px; color:var(--txt-faint);">${esc(i.status)}</div>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  // Auto-select first incident on load if nothing selected or selected not in list
+  if (!selectedDashboardIncidentId || !filtered.some((i) => i.id === selectedDashboardIncidentId)) {
+    openDashboardIncident(filtered[0].id);
+  } else {
+    openDashboardIncident(selectedDashboardIncidentId);
+  }
+}
+
+function openDashboardIncident(id) {
+  selectedDashboardIncidentId = id;
+  // highlight card
+  $$("#dashIncidentsList .inc-card").forEach((card) => {
+    card.classList.toggle("selected", card.dataset.id === id);
+  });
+  
+  const inc = incidentCache.find((i) => i.id === id);
+  if (!inc) return;
+  
+  const ph = $("#reportPlaceholder");
+  const cont = $("#detailedReportContent");
+  ph.hidden = true;
+  cont.hidden = false;
+  
+  const di = inc.incident;
+  const a = inc.assessment;
+  const co = inc.coordination;
+  const lo = inc.logistics;
+  const cf = inc.confidence;
+  const ctx = inc.context || {};
+  
+  const sev = a ? a.severity_score : "Moderate";
+  const conf = cf ? cf.level : "Unverified";
+  
+  // Header Actions
+  let actionsHtml = `
+    <button class="brief-export" onclick="viewIncidentOnGlobe('${inc.id}')">🌍 Globe</button>
+    <button class="brief-export" onclick="window.open('${API}/api/incidents/${inc.id}/briefing', '_blank')">📄 Briefing</button>
+    <button class="brief-export" onclick="window.open('${API}/api/incidents/${inc.id}/briefing/pdf', '_blank')" style="color:#a855f7; border-color:#a855f7;">⎙ PDF</button>
+  `;
+  
+  let headerHtml = `
+    <div class="report-header">
+      <div class="report-header-left" style="text-align:left;">
+        <div class="report-id">CRISIS INCIDENT RECORD: ${esc(inc.id)}</div>
+        <div class="report-title-row">
+          <h2>${esc(di.disaster_type)} in ${esc(di.location)}</h2>
+        </div>
+        <div class="report-time-sub">Received: ${esc(inc.created_at).slice(0, 19).replace("T", " ")} UTC · Status: <b>${esc(inc.status)}</b></div>
+      </div>
+      <div class="report-header-right">${actionsHtml}</div>
+    </div>
+  `;
+  
+  // Overview widgets
+  let overviewHtml = `
+    <div class="report-badge-row">
+      <span class="sev-badge sev-${sev}">${sev} Severity</span>
+      <span class="conf-badge conf-${conf}">${conf} ${cf ? `(${cf.score}/100)` : ""}</span>
+    </div>
+    
+    <div class="kfig" style="margin-bottom:15px;">
+      <div><b>${a && a.affected_population != null ? fmt(a.affected_population) : `<span class="unk">not estimated</span>`}</b><span>affected</span></div>
+      <div><b>${a && a.displaced_estimate != null ? fmt(a.displaced_estimate) : `<span class="unk">not estimated</span>`}</b><span>displaced</span></div>
+      <div><b>${a && a.fatalities_estimate != null ? fmt(a.fatalities_estimate) : (a && a.fatalities_label ? esc(a.fatalities_label) : `<span class="unk">not estimated</span>`)}</b><span>casualties</span></div>
+      <div><b>${a ? a.golden_hours + "h" : "72h"}</b><span>golden window</span></div>
+    </div>
+  `;
+  
+  let gridHtml = `<div class="report-grid">`;
+  
+  // Ingestion Agent Info
+  gridHtml += `
+    <div class="report-section" style="text-align:left;">
+      <h3>Incident Profile <span>Ingestion Cell</span></h3>
+      <ul class="report-bullet-list">
+        <li><b>Disaster Type:</b> ${esc(di.disaster_type)}</li>
+        <li><b>Reported Location:</b> ${esc(di.location)}</li>
+        <li><b>Latitude:</b> ${di.coordinates && di.coordinates.lat != null ? di.coordinates.lat.toFixed(4) : "—"}</li>
+        <li><b>Longitude:</b> ${di.coordinates && di.coordinates.lon != null ? di.coordinates.lon.toFixed(4) : "—"}</li>
+        <li><b>Inbound distress report:</b> <p style="background:rgba(255,255,255,0.03); padding:7px; border:1px solid var(--line); border-radius:5px; margin-top:4px; font-style:italic; line-height:1.4; color:var(--txt-dim);">"${esc(di.raw_report)}"</p></li>
+      </ul>
+    </div>
+  `;
+  
+  // MIRA Assessment details
+  let sevBasis = a ? a.severity_basis : "No formal assessment run yet.";
+  let urgency = a && a.urgency_reasoning ? a.urgency_reasoning : "";
+  let secondaryHazards = a && a.secondary_hazards && a.secondary_hazards.length ? a.secondary_hazards.join(", ") : "None identified";
+  
+  gridHtml += `
+    <div class="report-section" style="text-align:left;">
+      <h3>Multi-Sector Assessment (MIRA) <span>Assessment Cell</span></h3>
+      <ul class="report-bullet-list">
+        <li><b>Severity Score:</b> ${sev}</li>
+        <li><b>Severity Index:</b> 
+          <div class="score-indicator">
+            <span style="font-family:var(--mono); font-weight:bold; font-size:11px;">${a ? a.severity_index : 0}/100</span>
+            <div class="score-track"><div class="score-fill" style="width:${a ? a.severity_index : 0}%"></div></div>
+          </div>
+        </li>
+        <li><b>Grounding &amp; Basis:</b> ${esc(sevBasis)}</li>
+        ${urgency ? `<li><b>Urgency Reasoning:</b> ${esc(urgency)}</li>` : ""}
+        <li><b>Secondary Hazards:</b> ${esc(secondaryHazards)}</li>
+      </ul>
+    </div>
+  `;
+  
+  // Environmental context telemetry
+  const wx = ctx.weather;
+  const air = ctx.airports || [];
+  const ports = ctx.ports || [];
+  const hosp = ctx.hospitals || [];
+  const victimPois = inc.local_pois || [];
+  
+  let envHtml = "";
+  if (wx) {
+    envHtml += `<li><b>Weather conditions:</b> ${esc(wx.conditions)}, ${esc(wx.temperature_c)}°C · Wind ${esc(wx.wind_kmh)} km/h · Precip ${esc(wx.precipitation_mm)} mm</li>`;
+  }
+  if (ctx.fires && ctx.fires.count) {
+    envHtml += `<li><b>NASA active fires:</b> ${esc(ctx.fires.count)} detections within ~150 km</li>`;
+  }
+  if (ctx.air_quality && ctx.air_quality.pm25 != null) {
+    envHtml += `<li><b>Air Quality Index (PM2.5):</b> ${esc(ctx.air_quality.pm25)} µg/m³ (${esc(ctx.air_quality.band)})</li>`;
+  }
+  
+  let assistanceHtml = "";
+  if (victimPois.length) {
+    assistanceHtml = victimPois.map((p, idx) => `<li>🏥 <b>${esc(p.name)}</b> (${esc(p.distance)}) — <i>${esc(p.type)}</i></li>`).join("");
+  } else {
+    if (hosp.length) {
+      assistanceHtml += hosp.slice(0, 3).map((h) => `<li>🏥 <b>${esc(h.name)}</b> (${esc(h.distance_km)} km)</li>`).join("");
+    }
+    if (air.length) {
+      assistanceHtml += air.slice(0, 2).map((p) => `<li>✈ <b>${esc(p.name)}</b> (${esc(p.distance_km)} km)</li>`).join("");
+    }
+    if (ports.length) {
+      assistanceHtml += ports.slice(0, 2).map((p) => `<li>🚢 <b>${esc(p.name)}</b> (${esc(p.distance_km)} km)</li>`).join("");
+    }
+  }
+  if (!assistanceHtml) assistanceHtml = "<li>No nearby POIs captured.</li>";
+  
+  gridHtml += `
+    <div class="report-section" style="text-align:left;">
+      <h3>On-The-Ground Context <span>Infrastructure &amp; Feeds</span></h3>
+      <ul class="report-bullet-list">
+        ${envHtml || "<li>No environmental telemetry active for this report.</li>"}
+        <li style="margin-top:8px;"><b>Nearest Relief POIs (OpenStreetMap):</b>
+          <ul style="padding-left:12px; margin-top:4px;">
+            ${assistanceHtml}
+          </ul>
+        </li>
+      </ul>
+    </div>
+  `;
+  
+  // 3W Cluster assigns
+  let threeWRows = "";
+  if (co && co.three_w && co.three_w.length) {
+    threeWRows = co.three_w.map((e) => `
+      <div style="border-bottom:1px solid rgba(255,255,255,0.05); padding:6px 0; font-size:11px; text-align:left;">
+        <div style="display:flex; justify-content:space-between; font-weight:600;">
+          <span>${esc(e.sector)} · Lead: ${esc(e.who)}</span>
+          <span class="ack-tag ack-${e.ack ? e.ack.status : "Proposed"}" style="font-size:8px; padding:1px 5px;">${e.ack ? e.ack.status : "Proposed"}</span>
+        </div>
+        <div style="color:var(--txt-dim); margin-top:2px;">Activity: ${esc(e.what)}</div>
+      </div>
+    `).join("");
+  } else {
+    threeWRows = `<div class="ev-empty">No cluster assignments planned.</div>`;
+  }
+  
+  gridHtml += `
+    <div class="report-section" style="text-align:left;">
+      <h3>3W Response Cluster Plan <span>Coordination Cell</span></h3>
+      <div style="display:flex; flex-direction:column; gap:4px;">
+        ${threeWRows}
+      </div>
+    </div>
+  `;
+  
+  // Logistics gaps
+  let logisHtml = "";
+  if (lo && lo.lines && lo.lines.length) {
+    logisHtml = `
+      <table class="grid" style="width:100%; border-collapse:collapse; font-size:11px;">
+        <thead><tr style="border-bottom:1px solid var(--line2);"><th style="text-align:left;">Resource</th><th>Req</th><th>Gap</th><th>Status</th></tr></thead>
+        <tbody>
+          ${lo.lines.map((l) => `
+            <tr>
+              <td style="text-align:left;">${esc(l.label || l.item)}</td>
+              <td>${l.requested != null ? fmt(l.requested) : "—"}</td>
+              <td>${l.gap != null ? fmt(l.gap) : "—"}</td>
+              <td class="st-${l.status.replace(/\s/g, "")}" style="font-weight:bold; font-size:10px;">${esc(l.status)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+      <div style="font-size:10.5px; color:var(--txt-faint); margin-top:8px; line-height:1.4;">Summary: ${esc(lo.summary)}</div>
+    `;
+  } else {
+    logisHtml = `<div class="ev-empty">No supply chain allocations.</div>`;
+  }
+  
+  gridHtml += `
+    <div class="report-section" style="grid-column: span 1; text-align:left;">
+      <h3>Supply Chain Logistics <span>Logistics Cell</span></h3>
+      ${logisHtml}
+    </div>
+  `;
+  
+  // Evidence Ledger & Decisions
+  let logRows = "";
+  if (inc.decisions && inc.decisions.length) {
+    logRows += inc.decisions.map((d) => `<li><b>Decision:</b> ${esc(d.decision)} <span style="font-size:10px; color:var(--txt-faint)">(${esc(d.author)})</span></li>`).join("");
+  }
+  if (inc.evidence && inc.evidence.length) {
+    logRows += inc.evidence.slice(0, 3).map((ev) => `<li><b>Evidence [${esc(ev.kind)}]:</b> ${esc(ev.statement)}</li>`).join("");
+  }
+  if (!logRows) logRows = "<li>No logged operational decisions or verified telemetry entries.</li>";
+  
+  gridHtml += `
+    <div class="report-section" style="grid-column: span 1; text-align:left;">
+      <h3>Telemetry Evidence &amp; Log <span>Explainability</span></h3>
+      <ul class="report-bullet-list" style="padding-left:14px;">
+        ${logRows}
+      </ul>
+    </div>
+  `;
+  
+  gridHtml += `</div>`; // Close grid
+  
+  cont.innerHTML = headerHtml + overviewHtml + gridHtml;
+}
+
+function viewIncidentOnGlobe(id) {
+  const inc = incidentCache.find((i) => i.id === id);
+  if (!inc) return;
+  
+  switchView("globe");
+  selectedEventId = id;
+  CrisisGlobe.select(id);
+  if (inc.incident.coordinates && inc.incident.coordinates.lat != null) {
+    CrisisGlobe.focus(inc.incident.coordinates.lat, inc.incident.coordinates.lon, 1.0);
+  }
+  renderBrief(inc);
+}
+
+window.openDashboardIncident = openDashboardIncident;
+window.viewIncidentOnGlobe = viewIncidentOnGlobe;
 
 async function openIncident(id) {
   const inc = await (await fetch(`${API}/api/incidents/${id}`)).json();
