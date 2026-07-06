@@ -63,7 +63,13 @@
       .atmosphereColor("#2ea7e0").atmosphereAltitude(0.18)
       // live + incident points
       .pointsData([]).pointLat("lat").pointLng("lon")
-      .pointColor((d) => (d.id === selectedId ? "#ffffff" : severityColor(d.severity)))
+      .pointColor((d) => {
+        if (d.id === selectedId) return "#ffffff";
+        if (d.is_victim) {
+          return d.status === "Dispatched" ? "#37d67a" : "#ffff00";
+        }
+        return severityColor(d.severity);
+      })
       .pointAltitude(pointAltitude).pointRadius(pointRadius).pointResolution(6)
       .pointLabel(labelHtml)
       .onPointClick((d) => onClick && onClick(d))
@@ -165,10 +171,22 @@
   function applyRings() { world && world.ringsData([...liveRings, ...missionRings]); }
 
   function setActiveRings(items) {
-    liveRings = (items || []).filter((e) => e.lat != null && e.lon != null).map((e) => ({
-      lat: e.lat, lon: e.lon, _rgba: rgbaPrefix(e.severity),
-      _maxR: e.severity === "Critical" ? 2.6 : 2, _speed: 1.3, _period: 2200, _maxOpacity: 0.3,
-    }));
+    liveRings = (items || []).filter((e) => e.lat != null && e.lon != null).map((e) => {
+      let rgba = rgbaPrefix(e.severity);
+      let maxOpacity = 0.3;
+      let maxR = e.severity === "Critical" ? 2.6 : 2;
+      let speed = 1.3;
+      if (e.is_victim) {
+        rgba = "rgba(255,255,0,";
+        maxOpacity = 0.8;
+        maxR = 3.0;
+        speed = 1.5;
+      }
+      return {
+        lat: e.lat, lon: e.lon, _rgba: rgba,
+        _maxR: maxR, _speed: speed, _period: 2200, _maxOpacity: maxOpacity,
+      };
+    });
     applyRings();
   }
 
