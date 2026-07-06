@@ -101,7 +101,49 @@
       .pathColor(() => ["rgba(70,200,210,0.12)", "rgba(120,230,240,0.95)"])
       .pathStroke(1.4).pathPointAlt(0.004)
       .pathLabel((d) => `🚢 ${d.name}${d.sog != null ? " · " + d.sog + " kn" : ""}`)
-      .pathDashLength(0.5).pathDashGap(0.18).pathDashAnimateTime(2600);
+      .pathDashLength(0.5).pathDashGap(0.18).pathDashAnimateTime(2600)
+      // static 3D impact range zones
+      .customLayerData([])
+      .customThreeObject((d) => {
+        const THREE = window.THREE;
+        if (!THREE) return null;
+        const group = new THREE.Group();
+
+        // 1. Filled circle (semi-transparent)
+        const circleGeo = new THREE.CircleGeometry(d.radius, 32);
+        const circleMat = new THREE.MeshBasicMaterial({
+          color: d.color || "#ff3b46",
+          transparent: true,
+          opacity: d.isSelected ? 0.28 : 0.14,
+          side: THREE.DoubleSide,
+          depthWrite: false
+        });
+        const circle = new THREE.Mesh(circleGeo, circleMat);
+        group.add(circle);
+
+        // 2. Ring border
+        const ringGeo = new THREE.RingGeometry(d.radius * (d.isSelected ? 0.94 : 0.96), d.radius, 32);
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: d.isSelected ? "#ffffff" : d.color,
+          transparent: true,
+          opacity: d.isSelected ? 0.95 : 0.52,
+          side: THREE.DoubleSide,
+          depthWrite: false
+        });
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        group.add(ring);
+
+        return group;
+      })
+      .customThreeObjectUpdate((obj, d) => {
+        const THREE = window.THREE;
+        if (!THREE) return;
+        // Position slightly above the surface (altitude 0.006) to avoid z-fighting
+        Object.assign(obj.position, world.getCoords(d.lat, d.lon, 0.006));
+        // Align its local Z-normal to point outward from the Earth center (normal vector)
+        const normal = obj.position.clone().normalize();
+        obj.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+      });
 
     const controls = world.controls();
     controls.autoRotate = true; controls.autoRotateSpeed = 0.35;
@@ -154,7 +196,11 @@
       world.pointOfView({ lat, lng: lon, altitude }, 1200);
     }
   }
-  function select(id) { selectedId = id; refresh(); }
+  function select(id) {
+    selectedId = id;
+    refresh();
+    setImpactCircles(points);
+  }
   function setOnClick(fn) { onClick = fn; }
 
   // combined HTML-marker layer: resource depots (green diamond) + vessels (teal dot)
@@ -194,6 +240,34 @@
     });
     depotMarkers = Object.values(byLoc);
     applyHtml();
+  }
+
+  let impactCircles = [];
+
+  function setImpactCircles(items) {
+    if (!world) return;
+    impactCircles = (items || []).filter((e) => e.lat != null && e.lon != null).map((e) => {
+      // 1 unit = 63.71 km
+      let radiusKm = 100;
+      if (e.source === "USGS" && e.magnitude) {
+        // scale with magnitude (M5 -> 100km, M7 -> 300km, etc)
+        radiusKm = Math.max(30, Math.pow(1.8, e.magnitude) * 12);
+      } else {
+        if (e.severity === "Critical") radiusKm = 250;
+        else if (e.severity === "High") radiusKm = 150;
+        else if (e.severity === "Moderate") radiusKm = 90;
+        else if (e.severity === "Low") radiusKm = 50;
+      }
+      return {
+        id: e.id,
+        lat: e.lat,
+        lon: e.lon,
+        radius: radiusKm / 63.71,
+        color: severityColor(e.severity),
+        isSelected: e.id === selectedId
+      };
+    });
+    world.customLayerData(impactCircles);
   }
 
   /* =============================== MISSION =============================== */
@@ -275,6 +349,6 @@
 
   window.CrisisGlobe = {
     init, setEvents, setActiveRings, setResources, setVesselTracks, focus, select, setOnClick, severityColor,
-    missionStart, scan, coordination, logistics, broadcast, clearMission,
+    missionStart, scan, coordination, logistics, broadcast, clearMission, setImpactCircles
   };
 })();

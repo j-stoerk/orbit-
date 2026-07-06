@@ -394,6 +394,26 @@ def briefing(incident_id: str):
     return HTMLResponse(render_briefing(inc))
 
 
+@app.get("/api/incidents/{incident_id}/briefing/pdf")
+def briefing_pdf(incident_id: str):
+    from fastapi import Response
+    from .briefing import render_briefing_pdf
+    
+    inc = STORE.get(incident_id)
+    if not inc:
+        raise HTTPException(404, "Incident not found")
+    try:
+        pdf_data = render_briefing_pdf(inc)
+    except Exception as e:
+        raise HTTPException(500, f"Failed to generate PDF: {str(e)}")
+    
+    return Response(
+        content=pdf_data,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=orbit_briefing_{incident_id}.pdf"}
+    )
+
+
 @app.get("/api/context")
 def context(lat: float, lon: float):
     from .data import context as ctx

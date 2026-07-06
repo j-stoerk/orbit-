@@ -202,3 +202,36 @@ def render_briefing(inc: Incident) -> str:
                  "“not estimated”. Verify against ground truth before operational action.</div>")
     parts.append("</body></html>")
     return "".join(parts)
+
+
+def clean_html_for_pdf(html_str: str) -> str:
+    """Preprocess HTML/CSS for xhtml2pdf compatibility (resolves CSS variables)."""
+    replacements = {
+        "var(--ink)": "#0e1726",
+        "var(--mut)": "#5f7197",
+        "var(--line)": "#d8e0ec",
+        "var(--crit)": "#d11d2a",
+        "var(--high)": "#d97206",
+        "var(--mod)": "#b8901a",
+        "var(--low)": "#1f9d57",
+        "var(--acc)": "#1d7fb0"
+    }
+    for var_name, hex_color in replacements.items():
+        html_str = html_str.replace(var_name, hex_color)
+    return html_str
+
+
+def render_briefing_pdf(inc: Incident) -> bytes:
+    """Renders the briefing HTML, cleans it, and generates a PDF binary payload."""
+    import io
+    from xhtml2pdf import pisa
+    
+    html_content = render_briefing(inc)
+    cleaned_html = clean_html_for_pdf(html_content)
+    
+    pdf_buffer = io.BytesIO()
+    pisa_status = pisa.CreatePDF(cleaned_html, dest=pdf_buffer)
+    if pisa_status.err:
+        raise RuntimeError(f"PDF generation failed: {pisa_status.err}")
+        
+    return pdf_buffer.getvalue()
